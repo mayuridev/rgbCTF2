@@ -1,142 +1,238 @@
 package xyz.rgbsec.backend;
 
+import static xyz.rgbsec.util.TraceUtils.getLineNumber;
+
 import java.util.Collection;
+import java.util.HashSet;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Configurable;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
-@Configurable // to get it so it re attaches encoder spring bean on deserialization
+import xyz.rgbsec.backend.RedisUserDetailsManager.Authority;
+
+/** A class representing a User. Implements {@link UserDetails} */
 public class User implements UserDetails {
 
-	String getLineNumber() {
-		String out = "";
-		for (StackTraceElement n : new Throwable().getStackTrace()) {
+  Logger logger = LoggerFactory.getLogger(User.class);
+  private BCryptPasswordEncoder encoder;
 
-			if (n.getClassName().contains("rgbsec")) {
-				out += String.format("\n\t@ %s at function %s, line %d", n.getFileName(), n.getMethodName(),
-						n.getLineNumber());
-			}
-		}
-		return out;
-	}
+  private static final long serialVersionUID = 1L;
 
-	private User() {
-	}
+  private String password, username;
+  @SuppressWarnings("unused")
+  private boolean credentialsNonExpired = true,
+      accountNonLocked = true,
+      enabled = true,
+      accountNonExpired = true;
 
-	Logger logger = LoggerFactory.getLogger(User.class);
+  private HashSet<RedisUserDetailsManager.Authority> authorities =
+      new HashSet<RedisUserDetailsManager.Authority>();
 
-	private BCryptPasswordEncoder encoder; // TODO: this is you last night. for some reason this isnt being set properly
+  // Suppresses default constructor, ensuring non-instantiability.
+  private User() {}
 
-	private static final long serialVersionUID = 1L;
-	private String password, username;
+  private User(UserBuilder builder) {
+    this.updatePassword(builder.password);
+    this.username = builder.username;
+    this.setEnabled(builder.accountEnabled);
+  }
 
-	@SuppressWarnings("unused")
-	private boolean credentialsNonExpired = true, accountNonLocked = true, enabled = true, accountNonExpired = true;
+  @Override
+  public Collection<? extends GrantedAuthority> getAuthorities() {
+    return this.authorities;
+  }
+  /**
+   * Grants an authority to the user. Cannot return null.
+   *
+   * @param authority Authority to add to the user. If the user already has this authority, nothing
+   *     happens
+   * @throws IllegalArgumentException if the <code>authority</code> is <code>null</code>
+   */
+  public void grantAuthority(Authority authority) throws IllegalArgumentException {
+    if (authority == null) throw new IllegalArgumentException("Authority cannot be null");
+    authorities.add(authority);
+  }
 
-	private User(UserBuilder builder) {
-		this.setEncodedPassword(builder.password);
-		this.username = builder.username;
-		this.setEnabled(builder.accountEnabled);
-		// we're leaving out the other fields since they're just there to preserve
-		// Spring interface compliance
-	}
+  /**
+   * Revokes an authority the user. Cannot return null.
+   *
+   * @param authority Authority to revoke from the user. If the user doesn't have the authority,
+   *     nothing happens
+   * @throws IllegalArgumentException if the <code>authority</code> is <code>null</code>
+   */
+  public void revokeAuthority(Authority authority) {
+    authorities.remove(authority);
+  }
 
-	public static class UserBuilder {
-		private String password, username;
-		private boolean accountEnabled = true;
+  /**
+   * Returns the hashed password used to authenticate the user
+   *
+   * @return the hashed password
+   */
+  @Override
+  public String getPassword() {
+    return this.password;
+  }
 
-		public UserBuilder username(String username) {
-			this.username = username;
-			return this;
-		}
+  @SuppressWarnings("unused")
+  @Deprecated
+  /**
+   * We aren't using this method since it directly sets the password w/o encoding it. ONLY used for
+   * serialization/deserialization & accessed through JUnit's reflection.
+   *
+   * @param password an encrypted password to be directly used to update <code>this.password</password>
+   */
+  private void setPassword(String password) {
+    this.password = password;
+  }
 
-		public UserBuilder password(String password) {
-			this.password = password;
-			return this;
-		}
+  /**
+   * Takes <code>password</code> and encrypts it w/ BCrypt, and then sets it as the password used to
+   * authenticate.
+   *
+   * @param password - unencrypted password to replace the current password
+   */
+  public void updatePassword(String password) {
+    if (this.encoder == null) this.encoder = new BCryptPasswordEncoder(15);
 
-		public UserBuilder accountEnabled(boolean accountEnabled) {
-			this.accountEnabled = accountEnabled;
-			return this;
-		}
+    this.password = this.encoder.encode(password);
+    logger.debug(
+        "{} -> {}: setPassword(): Current password hash: {}", getLineNumber(), this.password);
+  }
 
-		public User build() {
-			if (this.password == null || this.username == null)
-				throw new IllegalStateException(
-						this.password == null ? "Password is required" : "Username is required");
+  /**
+   * @param password - unencrypted password to validate
+   * @return valid - a <strong>boolean</strong> representing if the supplied password matches the
+   *     current one
+   */
+  public boolean checkPassword(String password) {
+    if (this.encoder == null) this.encoder = new BCryptPasswordEncoder(15);
+    return this.encoder.matches(password, this.password);
+  }
 
-			return new User(this);
-		}
-	}
+  /** {@inheritDoc} */
+  @Override
+  public String getUsername() {
+    return this.username;
+  }
+  /**
+   * Sets the username used to authenticate. Cannot be null
+   *
+   * @param username (can't be null)
+   * @throws IllegalArgumentException if <code>username</code> is <code>null</code>
+   */
+  public void setUsername(String username) throws IllegalArgumentException {
+    if (username == "" || username == null)
+      throw new IllegalArgumentException("Username cannot be null");
+    this.username = username;
+  }
 
-	@Override
-	public Collection<? extends GrantedAuthority> getAuthorities() {
-		return null;
-	}
+  /**
+   * Currently nonfunctional, and purely used for compatibility with the {@link UserDetails}
+   * interface
+   */
+  @Deprecated
+  @Override
+  public boolean isAccountNonExpired() {
+    return false;
+  }
 
-	@Override
-	public String getPassword() {
-		return this.password;
-	}
+  /**
+   * Currently nonfunctional, and purely used for compatibility with the {@link UserDetails}
+   * interface
+   */
+  @Deprecated
+  @Override
+  public boolean isAccountNonLocked() {
+    return false;
+  }
 
-	@Deprecated
-	/**
-	 * We aren't using this method since it directly sets the password w/o encoding it. ONLY used for serialization/deserialization
-	 * @param password
-	 */
-	public void setPassword(String password) {
-		this.password = password;
-	}
+  /**
+   * Currently nonfunctional, and purely used for compatibility with the {@link UserDetails}
+   * interface
+   */
+  @Deprecated
+  @Override
+  public boolean isCredentialsNonExpired() {
+    return false;
+  }
 
-	public void setEncodedPassword(String password) {
-		if (this.encoder == null)
-			this.encoder = new BCryptPasswordEncoder(15);
+  /** {@inheritDoc} */
+  @Override
+  public boolean isEnabled() {
+    return this.enabled;
+  }
+  /**
+   * Sets whether the user is enabled or disabled. A disabled user cannot be authenticated.
+   *
+   * @param enabled <code>true</code> if the user is enabled, <code>false</code> otherwise
+   */
+  public void setEnabled(boolean enabled) {
+    this.enabled = enabled;
+  }
 
-		this.password = this.encoder.encode(password);
-		logger.debug("{} -> {}: setPassword(): Current password hash: {}", getLineNumber(), this.password);
-	}
+  /** Helper class to create valid {@link User} instances */
+  public static class UserBuilder {
+    private String password, username;
+    private boolean accountEnabled = true;
+    private HashSet<Authority> authorities = new HashSet<Authority>();
 
-	public boolean checkPassword(String password) {
-		if (this.encoder == null)
-			this.encoder = new BCryptPasswordEncoder(15);
-		return this.encoder.matches(password, this.password);
-	}
+    /**
+     * Sets the username used to authenticate. Cannot be null
+     *
+     * @param username (can't be null)
+     * @throws IllegalArgumentException if <code>username</code> is <code>null</code>
+     */
+    public UserBuilder username(String username) throws IllegalArgumentException {
+      if (username == null) throw new IllegalArgumentException("Username cannot be null");
+      this.username = username;
+      return this;
+    }
 
-	@Override
-	public String getUsername() {
-		return this.username;
-	}
+    /**
+     * Takes <code>password</code> and encrypts it w/ BCrypt, and then sets it as the password used
+     * to authenticate.
+     *
+     * @param password - unencrypted password to replace the current password
+     */
+    public UserBuilder password(String password) {
+      this.password = password;
+      return this;
+    }
 
-	public void setUsername(String username) {
-		this.username = username;
-	}
+    /**
+     * Sets whether the user is enabled or disabled. A disabled user cannot be authenticated.
+     *
+     * @param enabled <code>true</code> if the user is enabled, <code>false</code> otherwise
+     */
+    public UserBuilder accountEnabled(boolean accountEnabled) {
+      this.accountEnabled = accountEnabled;
+      return this;
+    }
 
-	@Override
-	public boolean isAccountNonExpired() {
-		return false;
-	}
+    /**
+     * Grants an authority to the user. Cannot return null.
+     *
+     * @param authority Authority to add to the user. If the user already has this authority,
+     *     nothing happens
+     * @throws IllegalArgumentException if the <code>authority</code> is <code>null</code>
+     */
+    public UserBuilder grantAuthority(Authority authority) throws IllegalArgumentException {
+      if (authority == null) throw new IllegalArgumentException("Authority cannot be null");
+      authorities.add(authority);
+      return this;
+    }
 
-	@Override
-	public boolean isAccountNonLocked() {
-		return this.accountNonLocked;
-	}
+    /** Creates a {@link User} with the given information */
+    public User build() {
+      if (this.password == null || this.username == null)
+        throw new IllegalStateException(
+            this.password == null ? "Password is required" : "Username is required");
 
-	@Override
-	public boolean isCredentialsNonExpired() {
-		return this.credentialsNonExpired;
-	}
-
-	@Override
-	public boolean isEnabled() {
-		return this.enabled;
-	}
-
-	public void setEnabled(boolean enabled) {
-		this.enabled = enabled;
-	}
-
+      return new User(this);
+    }
+  }
 }

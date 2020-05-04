@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import org.msgpack.jackson.dataformat.MessagePackFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.provisioning.UserDetailsManager;
@@ -18,6 +19,25 @@ import io.lettuce.core.api.StatefulRedisConnection;
 
 @Component
 public class RedisUserDetailsManager implements UserDetailsManager {
+
+	public static enum Authority implements GrantedAuthority {
+
+		USER {
+			@Override
+			public String getAuthority() {
+				// TODO Auto-generated method stub
+				return "USER";
+			}
+		},
+		ADMIN {
+			@Override
+			public String getAuthority() {
+				// TODO Auto-generated method stub
+				return "USER";
+			}
+		};
+
+	}
 
 	int getLineNumber() {
 		return new Throwable().getStackTrace()[0].getLineNumber();
@@ -38,13 +58,29 @@ public class RedisUserDetailsManager implements UserDetailsManager {
 		mapper = new ObjectMapper(new MessagePackFactory());
 		connection.sync().keys("*").forEach(usernamesCache::add);
 
+		this.createUser(new User.UserBuilder().accountEnabled(true).password("admin").username("admin").build());
+	}
+
+	public void removeAuthority(String username, Authority authority) {
+		if (!this.userExists(username))
+			throw new UsernameNotFoundException("User doesn't exist");
+
+		User user = this.loadUserByUsername(username);
+	}
+
+	public void addAuthority(String username, Authority authority) {
+		if (!this.userExists(username))
+			throw new UsernameNotFoundException("User doesn't exist");
+
+		User user = this.loadUserByUsername(username);
+		
 	}
 
 	@Override
 	public void createUser(UserDetails user) {
 
 		if (!(user instanceof User))
-			throw new ClassCastException();
+			throw new IllegalArgumentException();
 		try {
 			usernamesCache.add(user.getUsername());
 			byte[] serializedUser = mapper.writeValueAsBytes((User) user);
@@ -100,7 +136,7 @@ public class RedisUserDetailsManager implements UserDetailsManager {
 			throw new UsernameNotFoundException("User doesn't exist");
 
 		User user = this.loadUserByUsername(username);
-		user.setEncodedPassword(newPassword);
+		user.updatePassword(newPassword);
 		this.updateUser(user);
 
 	}

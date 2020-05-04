@@ -102,7 +102,7 @@ public class RedisUserDetailsManagerTest {
 
 		User loadedUser = redisUserDetailsManager.loadUserByUsername(testUser.getUsername());
 
-		loadedUser.setEncodedPassword(secondTestString);
+		loadedUser.updatePassword(secondTestString);
 		loadedUser.setEnabled(false);
 
 		redisUserDetailsManager.updateUser(loadedUser);

@@ -14,6 +14,8 @@ import com.vaadin.flow.component.login.LoginOverlay;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+
+import xyz.rgbsec.backend.CustomRequestCache;
  
 
 @Tag("sa-login-view")
@@ -25,7 +27,7 @@ public class LoginView extends VerticalLayout {
 	private LoginOverlay login = new LoginOverlay();
 
 	@Autowired
-	public LoginView(AuthenticationManager authenticationManager) {
+	public LoginView(AuthenticationManager authenticationManager, CustomRequestCache requestCache) {
 		// configures login dialog and adds it to the main view
 		login.setOpened(true);
 		login.setTitle("Spring Secured Vaadin");
@@ -45,6 +47,7 @@ public class LoginView extends VerticalLayout {
 				if (authentication != null) {
 					login.close();
 					SecurityContextHolder.getContext().setAuthentication(authentication);
+					UI.getCurrent().navigate(requestCache.resolveRedirectUrl());
 				}
 
 			} catch (AuthenticationException ex) {

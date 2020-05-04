@@ -67,7 +67,9 @@ public class SecurityConfiguration extends WebSecurityConfigurerAdapter {
 				.authorizeRequests().requestMatchers(SecurityUtils::isFrameworkInternalRequest).permitAll()
 
 				// Allow all requests by logged in users.
-				.anyRequest().authenticated()
+				.antMatchers("/").hasAnyAuthority("USER", "ADMIN")
+				.antMatchers("/admin").hasAuthority("ADMIN")
+				
 
 				// Configure the login page.
 				.and().formLogin().loginPage("/" + LoginView.ROUTE).permitAll()
